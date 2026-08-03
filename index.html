@@ -294,16 +294,20 @@
   // 1. CONFIGURE THIS: paste your Supabase project values here.
   //    Settings -> API in your Supabase dashboard.
   // ---------------------------------------------------------------
-  var SUPABASE_URL = "https://eswwxnjmkvnyzjeflkyj.supabase.co/";
-  var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzd3d4bmpta3ZueXpqZWZsa3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNTk3MDEsImV4cCI6MjEwMDczNTcwMX0.odkn-wEaa4m25s2WaffGPIydueaxVQGsR4xHBnfuxGE";
+  var SUPABASE_URL = "YOUR_SUPABASE_URL";
+  var SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
   // ---------------------------------------------------------------
 
   var CLIENTS = [
-    "Ben Alvarez","Ben Sirrine","Bella Hanono","Bryce Westmoreland","Christopher Calnon",
-    "Danny Bellamy","David Matney","Drew Link","Ethan Grounds","Evelyn Kidonakis",
-    "Franklin A. Landers","French Moore III","Jaime Davenport","Jim Albrecht","Lynne Thomas",
-    "Mark Streitz","Michelle Lacues","Nick Gallegos","Paul Diaz","Praneeth Devabhaktuni",
-    "Semida Repta","Sundar Jagadeeshan","Varun Joseph"
+    "Bahram Hamidi (Greene, Brooklyn)","Bahram Hamidi (Murray, New York)","Ben Alvarez","Ben Sirrine",
+    "Bella Hanono","Bryce Westmoreland","Christopher Calnon","Danny Bellamy","David Matney","Douglas Hinterman",
+    "Douglas Kersey","Drew Link","Eric Kaleka","Elizabeth Kubasko","Ethan Grounds","Evelyn Kidonakis",
+    "Franklin A. Landers","French Moore III","Gina Gomez","Hammad Aziz","Homayoun Ardjmand",
+    "Jaime Davenport","James Lohr","Jim Albrecht","Justin Norbo","Kellan Clark","Loc Tong",
+    "Lori Tijerino","Lynne Thomas","Mario Samaniego 01 - Las Cruces","Mario Samaniego 02 - Alamogordo",
+    "Mark Streitz","Michelle Lacues","Nick Gallegos","Patterson Shedd","Paul Diaz","Praneeth Devabhaktuni",
+    "Semida Repta","Sina Reangber","Sundar Jagadeeshan","Todd Anderson","Tyler Kurle","Varun Joseph",
+    "Victor Bauer","Yvonne Caton-Hospedales"
   ];
 
   var STATUS_META = {
@@ -380,6 +384,7 @@
       deadline: row.deadline,
       status: row.status,
       notes: row.notes,
+      notionPageId: row.notion_page_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -396,6 +401,22 @@
     return res.data.map(dbToApp);
   }
 
+  async function syncToNotion(payload){
+    try{
+      var resp = await fetch("/api/sync-commitment-notion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      return await resp.json();
+    }catch(e){
+      // Notion sync is a nice-to-have layered on top of Supabase — never let
+      // a network hiccup here surface as an error to the user.
+      console.error("Notion sync failed:", e);
+      return { synced: false };
+    }
+  }
+
   async function addCommitment(entry){
     var res = await sb.from("commitments").insert([{
       client: entry.client,
@@ -405,8 +426,26 @@
       deadline: entry.deadline,
       status: entry.status,
       notes: entry.notes
-    }]);
+    }]).select();
     if(res.error){ alert("Couldn't save that commitment: " + res.error.message); return false; }
+
+    var newRow = res.data && res.data[0];
+    if(newRow){
+      var syncResult = await syncToNotion({
+        action: "create",
+        client: entry.client,
+        text: entry.text,
+        loggedBy: entry.loggedBy,
+        datePromised: entry.datePromised,
+        deadline: entry.deadline,
+        status: entry.status,
+        notes: entry.notes
+      });
+      if(syncResult.synced && syncResult.notionPageId){
+        await sb.from("commitments").update({ notion_page_id: syncResult.notionPageId }).eq("id", newRow.id);
+      }
+    }
+
     await reloadAndRender();
     return true;
   }
@@ -423,13 +462,39 @@
 
     var res = await sb.from("commitments").update(dbPatch).eq("id", id);
     if(res.error){ alert("Couldn't update that commitment: " + res.error.message); return false; }
+
+    var current = state.commitments.find(function(c){ return c.id === id; });
+    if(current){
+      var merged = Object.assign({}, current, patch);
+      if(merged.notionPageId){
+        syncToNotion({
+          action: "update",
+          notionPageId: merged.notionPageId,
+          client: merged.client,
+          text: merged.text,
+          loggedBy: merged.loggedBy,
+          datePromised: merged.datePromised,
+          deadline: merged.deadline,
+          status: merged.status,
+          notes: merged.notes
+        });
+      }
+    }
+
     await reloadAndRender();
     return true;
   }
 
   async function deleteCommitment(id){
+    var current = state.commitments.find(function(c){ return c.id === id; });
+
     var res = await sb.from("commitments").delete().eq("id", id);
     if(res.error){ alert("Couldn't delete that commitment: " + res.error.message); return false; }
+
+    if(current && current.notionPageId){
+      syncToNotion({ action: "archive", notionPageId: current.notionPageId });
+    }
+
     await reloadAndRender();
     return true;
   }
