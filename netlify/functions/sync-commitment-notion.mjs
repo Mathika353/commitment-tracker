@@ -99,9 +99,16 @@ function buildProperties(fields) {
   return props;
 }
 
-module.exports = async (req, res) => {
+function json(data, status) {
+  return new Response(JSON.stringify(data), {
+    status: status || 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+export default async (req) => {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Use POST" });
+    return json({ error: "Use POST" }, 405);
   }
 
   var NOTION_API_KEY = process.env.NOTION_API_KEY;
@@ -110,11 +117,16 @@ module.exports = async (req, res) => {
   if (!NOTION_API_KEY || !NOTION_COMMITMENTS_DB_ID) {
     // Fail soft: the ledger's own Supabase write already succeeded by the time
     // this is called, so a missing Notion config shouldn't block the user.
-    return res.status(200).json({ synced: false, reason: "Notion sync not configured" });
+    return json({ synced: false, reason: "Notion sync not configured" });
   }
 
   try {
-    var body = req.body || {};
+    var body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      return json({ error: "Request body was not valid JSON" }, 400);
+    }
     var action = body.action;
 
     if (action === "create") {
@@ -122,34 +134,34 @@ module.exports = async (req, res) => {
         parent: { database_id: NOTION_COMMITMENTS_DB_ID },
         properties: buildProperties(body)
       });
-      return res.status(200).json({ synced: true, notionPageId: page.id });
+      return json({ synced: true, notionPageId: page.id });
     }
 
     if (action === "update") {
       if (!body.notionPageId) {
-        return res.status(200).json({ synced: false, reason: "No notionPageId on this commitment yet" });
+        return json({ synced: false, reason: "No notionPageId on this commitment yet" });
       }
       await notionRequest(NOTION_API_KEY, "/pages/" + body.notionPageId, "PATCH", {
         properties: buildProperties(body)
       });
-      return res.status(200).json({ synced: true, notionPageId: body.notionPageId });
+      return json({ synced: true, notionPageId: body.notionPageId });
     }
 
     if (action === "archive") {
       if (!body.notionPageId) {
-        return res.status(200).json({ synced: false, reason: "No notionPageId on this commitment" });
+        return json({ synced: false, reason: "No notionPageId on this commitment" });
       }
       await notionRequest(NOTION_API_KEY, "/pages/" + body.notionPageId, "PATCH", {
         archived: true
       });
-      return res.status(200).json({ synced: true });
+      return json({ synced: true });
     }
 
-    return res.status(400).json({ error: "action must be create, update, or archive" });
+    return json({ error: "action must be create, update, or archive" }, 400);
   } catch (err) {
     console.error(err);
     // Fail soft here too — Notion sync is a nice-to-have layered on top of the
     // real Supabase write, not a dependency the ledger's core function needs.
-    return res.status(200).json({ synced: false, reason: err.message });
+    return json({ synced: false, reason: err.message });
   }
 };
