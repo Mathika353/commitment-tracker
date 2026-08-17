@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Commitments Ledger</title>
+<title>Follow-Through Ledger</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9C%85</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -299,17 +299,7 @@
   var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzd3d4bmpta3ZueXpqZWZsa3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNTk3MDEsImV4cCI6MjEwMDczNTcwMX0.odkn-wEaa4m25s2WaffGPIydueaxVQGsR4xHBnfuxGE";
   // ---------------------------------------------------------------
 
-  var CLIENTS = [
-    "Bahram Hamidi (Greene, Brooklyn)","Bahram Hamidi (Murray, New York)","Ben Alvarez","Ben Sirrine",
-    "Bella Hanono","Bryce Westmoreland","Christopher Calnon","Danny Bellamy","David Matney","Douglas Hinterman",
-    "Douglas Kersey","Drew Link","Eric Kaleka","Elizabeth Kubasko","Ethan Grounds","Evelyn Kidonakis",
-    "Franklin A. Landers","French Moore III","Gina Gomez","Hammad Aziz","Homayoun Ardjmand",
-    "Jaime Davenport","James Lohr","Jim Albrecht","Justin Norbo","Kellan Clark","Loc Tong",
-    "Lori Tijerino","Lynne Thomas","Mario Samaniego 01 - Las Cruces","Mario Samaniego 02 - Alamogordo",
-    "Mark Streitz","Michelle Lacues","Nick Gallegos","Patterson Shedd","Paul Diaz","Praneeth Devabhaktuni",
-    "Semida Repta","Sina Reangber","Sundar Jagadeeshan","Todd Anderson","Tyler Kurle","Varun Joseph",
-    "Victor Bauer","Yvonne Caton-Hospedales"
-  ];
+  var CLIENTS = [];
 
   var STATUS_META = {
     not_started: {label:"Not started", short:"OPEN"},
@@ -515,6 +505,22 @@
   }
 
   /* ---------------- rendering ---------------- */
+
+  async function loadClients(){
+    try{
+      var resp = await fetch("/api/list-clients");
+      var data = await resp.json();
+      if(data.configured === false){
+        $("setupBanner").style.display = "block";
+        $("ledger").innerHTML = '<div class="loading">Waiting for database configuration&hellip;</div>';
+        return;
+      }
+      CLIENTS = data.names || [];
+    }catch(e){
+      console.error("Failed to load client list", e);
+    }
+    populateClientDropdowns();
+  }
 
   function populateClientDropdowns(){
     var addHtml = CLIENTS.map(function(c){
@@ -787,7 +793,7 @@
       $("ledger").innerHTML = '<div class="loading">Waiting for database configuration&hellip;</div>';
     }
 
-    populateClientDropdowns();
+    loadClients();
     $("f-date").value = todayStr();
 
     wireForm();
